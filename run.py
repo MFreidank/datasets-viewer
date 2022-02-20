@@ -333,10 +333,12 @@ if start:
                         or isinstance(v, float)
                     ):
                         df_item[k] = v
+                    elif v is None:
+                        df_item[k] = None
                     else:
                         try:
                             src = v["path"]
-                        except KeyError, TypeError:
+                        except (KeyError, TypeError):
                             print(v)
                             raise
                         with open(src, "rb") as f:
