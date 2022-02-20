@@ -10,6 +10,8 @@ import json
 import time
 import sys
 
+from streamlit.in_memory_file_manager import in_memory_file_manager
+
 
 MAX_SIZE = 40000000000
 if len(sys.argv) > 1:
@@ -29,7 +31,7 @@ def _max_width_():
     th {{
         text-align: left;
         font-size: 110%;
-       
+
 
      }}
 
@@ -137,17 +139,23 @@ if start:
     # @st.cache(allow_output_mutation=True)
     def get(opt, conf=None):
         "Get a dataset from name and conf"
+        from pathlib import Path
         if path_to_datasets is not None:
             path = path_to_datasets + opt
         else:
             path = opt
-        
+
+        return datasets.load_dataset(path, name="exploration"), False
+
         module_path = datasets.load.prepare_module(path, dataset=True)
         builder_cls = datasets.load.import_main_class(module_path[0], dataset=True)
         if conf:
             builder_instance = builder_cls(name=conf, cache_dir=path if path_to_datasets is not None else None)
         else:
+            old_path = str(path)
+            path = None
             builder_instance = builder_cls(cache_dir=path if path_to_datasets is not None else None)
+            path = str(old_path)
         fail = False
         if path_to_datasets is not None:
             dts = datasets.load_dataset(path,
@@ -313,7 +321,11 @@ if start:
                 for k in on_keys:
                     v = d[item][k]
                     if isinstance(v, str):
-                        out = v
+                        if k == "audio_filename":
+                            from pathlib import Path
+                            out = Path(v).name
+                        else:
+                            out = v
                         df_item[k] = textwrap.fill(out, width=50)
                     elif (
                         isinstance(v, bool)
@@ -322,8 +334,23 @@ if start:
                     ):
                         df_item[k] = v
                     else:
-                        out = json.dumps(v, indent=2, sort_keys=True)
-                        df_item[k] = out
+                        try:
+                            src = v["path"]
+                        except KeyError, TypeError:
+                            print(v)
+                            raise
+                        with open(src, "rb") as f:
+                            data = f.read()
+                        import uuid
+                        coords = uuid.uuid4()
+                        this_file = in_memory_file_manager.add(
+                            content=data,
+                            mimetype="audio/wav",
+                            coordinates=Path(v["path"]).name,
+                        )
+                        print(this_file.url)
+                        df_item[k] = f"<html><audio controls src='{this_file.url}'></audio></html>"
+
                 df.append(df_item)
             df2 = df
             df = pd.DataFrame(df).set_index("_number")
@@ -346,9 +373,15 @@ if start:
             # Table view. Use pands styling.
             style = df.style.set_properties(
                 **{"text-align": "left", "white-space": "pre"}
-            ).set_table_styles([dict(selector="th", props=[("text-align", "left")])])
+                ).set_table_styles([dict(selector="th", props=[("text-align", "left")])]).format(
+                        {"audio": lambda x: f"<html><audio controls src={x}></audio></html>"}
+            )
+
+            df.style.format()
             style = style.set_table_styles(styles)
-            st.table(style)
+            df.index.rename(None, inplace=True)
+            table = st.write(df.to_html(escape=False), unsafe_allow_html=True)
+
 
     # Additional dataset installation and sidebar properties.
     md = """
